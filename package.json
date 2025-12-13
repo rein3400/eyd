@@ -1,0 +1,29 @@
+{
+  "name": "indonesian-paper-corrector",
+  "version": "1.0.0",
+  "description": "A Micro-SaaS web application that corrects Indonesian scientific papers using the google/gemini-2.5-flash model via OpenRouter.",
+  "main": "server/server.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "start": "node server/server.js",
+    "server": "cd server && nodemon server.js",
+    "client": "npm start --prefix client",
+    "build": "npm run build --prefix client"
+  },
+  "keywords": [
+    "indonesian",
+    "scientific-paper",
+    "correction",
+    "openrouter",
+    "grok"
+  ],
+  "author": "Developer",
+  "license": "MIT",
+  "dependencies": {
+    "concurrently": "^8.2.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
