@@ -1,43 +1,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import GoogleSignIn from './components/GoogleSignIn';
 import './App.css';
 
 // Use environment variable for API URL or fallback to localhost
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-// Google OAuth2 Access Token Input Component
-const GoogleAccessTokenInput = ({ onCancel, onSubmit }) => {
-  const [token, setToken] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (token.trim()) {
-      onSubmit(token.trim());
-    }
-  };
-
-  return (
-    <div className="google-token-modal">
-      <div className="google-token-content">
-        <h3>Google OAuth2 Access Token</h3>
-        <p>Please enter your Google OAuth2 access token for document export:</p>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Enter your Google OAuth2 access token"
-            className="google-token-input"
-          />
-          <div className="google-token-buttons">
-            <button type="submit" className="google-token-submit">Submit</button>
-            <button type="button" className="google-token-cancel" onClick={onCancel}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
 
 function App() {
   const [file, setFile] = useState(null);
@@ -47,7 +14,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [googleDocsUrl, setGoogleDocsUrl] = useState('');
-  const [showGoogleTokenInput, setShowGoogleTokenInput] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState('');
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -153,20 +122,31 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportToGoogleDocs = () => {
+  // Handle Google Sign-In success
+  const handleGoogleSignInSuccess = (authData) => {
+    console.log('Google Sign-In successful:', authData);
+    setIsAuthenticated(true);
+    setUser(authData.user);
+    setGoogleAccessToken(authData.token);
+    setError('');
+  };
+
+  // Handle Google Sign-In error
+  const handleGoogleSignInError = (error) => {
+    console.error('Google Sign-In error:', error);
+    setError('Google Sign-In failed: ' + error);
+  };
+
+  const handleExportToGoogleDocs = async () => {
     if (!correctedText) {
       setError('No corrected text to export');
       return;
     }
-    
-    // Show the Google OAuth2 access token input modal
-    setShowGoogleTokenInput(true);
-  };
 
-  // Handle Google OAuth2 access token submission
-  const handleGoogleTokenSubmit = async (accessToken) => {
-    // Hide the token input modal
-    setShowGoogleTokenInput(false);
+    if (!isAuthenticated || !googleAccessToken) {
+      setError('Please sign in with Google first');
+      return;
+    }
     
     setLoading(true);
     setError('');
@@ -176,7 +156,7 @@ function App() {
       const response = await axios.post('/api/export/google-docs', {
         text: correctedText,
         title: fileName.replace(/\.[^/.]+$/, '') + ' - Corrected',
-        accessToken: accessToken
+        accessToken: googleAccessToken
       });
 
       if (response.data.success) {
@@ -196,11 +176,6 @@ function App() {
     }
   };
 
-  // Cancel Google OAuth2 access token input
-  const handleGoogleTokenCancel = () => {
-    setShowGoogleTokenInput(false);
-  };
-
   return (
     <div className="App">
       <header className="App-header">
@@ -210,6 +185,24 @@ function App() {
       </header>
 
       <main className="App-main">
+        {/* Authentication Section */}
+        {!isAuthenticated && (
+          <div className="auth-section">
+            <h2>Sign in with Google</h2>
+            <p>Please sign in with your Google account to export documents to Google Docs</p>
+            <GoogleSignIn 
+              onSuccess={handleGoogleSignInSuccess}
+              onError={handleGoogleSignInError}
+            />
+          </div>
+        )}
+
+        {isAuthenticated && user && (
+          <div className="user-info">
+            <p>Signed in as: {user.name} ({user.email})</p>
+          </div>
+        )}
+
         <div className="upload-section">
           <div className="file-input-container">
             <input
@@ -217,14 +210,14 @@ function App() {
               id="file-upload"
               accept=".docx,.pdf"
               onChange={handleFileChange}
-              disabled={loading}
+              disabled={loading || !isAuthenticated}
             />
             <label htmlFor="file-upload" className="file-label">
               {fileName || 'Choose a DOCX or PDF file'}
             </label>
             <button 
               onClick={handleUpload} 
-              disabled={loading || !file}
+              disabled={loading || !file || !isAuthenticated}
               className="upload-button"
             >
               {loading ? 'Processing...' : 'Upload and Extract Text'}
@@ -289,7 +282,7 @@ function App() {
               
               <button 
                 onClick={handleExportToGoogleDocs}
-                disabled={loading}
+                disabled={loading || !isAuthenticated}
                 className="export-google-docs-button"
               >
                 {loading ? (
@@ -318,14 +311,6 @@ function App() {
       <footer className="App-footer">
         <p>Indonesian Scientific Paper Corrector &copy; {new Date().getFullYear()}</p>
       </footer>
-      
-      {/* Google OAuth2 Access Token Modal */}
-      {showGoogleTokenInput && (
-        <GoogleAccessTokenInput 
-          onCancel={handleGoogleTokenCancel} 
-          onSubmit={handleGoogleTokenSubmit} 
-        />
-      )}
     </div>
   );
 }
