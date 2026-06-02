@@ -154,9 +154,26 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
   );
 
   // Surface MiniMax base_resp errors as proper exceptions so the outer catch logs them.
-  const base = response.data && response.data.base_resp;
+  const data = response.data || {};
+  const base = data.base_resp;
   if (base && base.status_code != null && base.status_code !== 0) {
     const err = new Error(`MiniMax API error: ${base.status_code} ${base.status_msg || ''}`.trim());
+    err.response = response;
+    throw err;
+  }
+
+  // Validate response shape — must have a non-empty choices[0].message.content.
+  // MiniMax returns HTTP 200 even for some error states (e.g. invalid key) and
+  // can echo the input or return an empty body. Without this check, callers
+  // would silently store the original text and report a "successful" correction.
+  if (!Array.isArray(data.choices) || data.choices.length === 0) {
+    const err = new Error('MiniMax API returned no choices');
+    err.response = response;
+    throw err;
+  }
+  const content = extractContent(data);
+  if (!content || !content.trim()) {
+    const err = new Error('MiniMax API returned empty content');
     err.response = response;
     throw err;
   }
@@ -284,7 +301,6 @@ async function correctIndonesianText(text, apiKey) {
 
   const correctedChunks = [];
   let successfulCorrections = 0;
-  let failedCorrections = 0;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -298,20 +314,24 @@ async function correctIndonesianText(text, apiKey) {
           successfulCorrections++;
           console.log(`Chunk ${i+1} corrected successfully`);
         } else {
-          correctedChunks.push(chunk);
-          console.warn(`Chunk ${i+1} correction was not improved, keeping original`);
+          // AI returned identical or near-identical text — not a useful correction.
+          // Don't silently swap in the original; surface the issue and abort so
+          // the caller knows nothing was actually fixed.
+          console.warn(`Chunk ${i+1} correction was not improved, aborting`);
+          throw new Error(`Chunk ${i+1} correction produced no changes`);
         }
       } catch (error) {
         console.error(`Error correcting chunk ${i+1}: ${error.message}`);
-        correctedChunks.push(chunk);
-        failedCorrections++;
+        // Re-throw so /api/correct returns 500 with a real error message
+        // instead of returning the original text pretending it's "corrected".
+        throw error;
       }
     }
   }
 
   const correctedText = correctedChunks.join("\n\n");
   console.log('Correction complete. Original text length:', text.length, 'Corrected text length:', correctedText.length);
-  console.log('Successful corrections:', successfulCorrections, 'Failed corrections:', failedCorrections);
+  console.log('Successful corrections:', successfulCorrections);
 
   if (correctedText.trim() === text.trim()) {
     console.warn('Final text is identical to original. This may indicate issues with the correction process.');
