@@ -155,57 +155,87 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
   const maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS;
   const timeout = opts.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  const response = await axios.post(
-    MINIMAX_CHAT_URL,
-    {
-      model: MINIMAX_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature,
-      top_p: topP,
-      frequency_penalty: frequencyPenalty,
-      presence_penalty: presencePenalty,
-      max_tokens: maxTokens
+  const payload = {
+    model: MINIMAX_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature,
+    top_p: topP,
+    frequency_penalty: frequencyPenalty,
+    presence_penalty: presencePenalty,
+    max_tokens: maxTokens
+  };
+
+  const config = {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
     },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      // MiniMax-M3 (reasoning model) is slow on long inputs. 10 min covers
-      // large multi-chunk documents; per-chunk cap enforced by Render itself.
-      timeout
+    // MiniMax-M3 (reasoning model) is slow on long inputs. 10 min covers
+    // large multi-chunk documents; per-chunk cap enforced by Render itself.
+    timeout
+  };
+
+  // Retry transient shape errors (no choices, empty content). These happen
+  // intermittently on MiniMax (especially first request after cold start)
+  // and are resolved by a single retry. Up to 3 attempts with backoff.
+  const maxAttempts = 3;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response;
+    try {
+      response = await axios.post(MINIMAX_CHAT_URL, payload, config);
+    } catch (networkErr) {
+      // Network/timeout errors — retry.
+      lastErr = networkErr;
+      if (attempt < maxAttempts) {
+        const delay = attempt * 2000;
+        console.warn(`callMinimax network error (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms:`, networkErr.message);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw networkErr;
     }
-  );
 
-  // Surface MiniMax base_resp errors as proper exceptions so the outer catch logs them.
-  const data = response.data || {};
-  const base = data.base_resp;
-  if (base && base.status_code != null && base.status_code !== 0) {
-    const err = new Error(`MiniMax API error: ${base.status_code} ${base.status_msg || ''}`.trim());
-    err.response = response;
-    throw err;
+    const data = response.data || {};
+    const base = data.base_resp;
+    if (base && base.status_code != null && base.status_code !== 0) {
+      // Non-retryable (auth/params) — fail fast.
+      const err = new Error(`MiniMax API error: ${base.status_code} ${base.status_msg || ''}`.trim());
+      err.response = response;
+      throw err;
+    }
+
+    if (!Array.isArray(data.choices) || data.choices.length === 0) {
+      lastErr = new Error('MiniMax API returned no choices');
+      lastErr.response = response;
+      if (attempt < maxAttempts) {
+        console.warn(`callMinimax empty choices (attempt ${attempt}/${maxAttempts}), retrying`);
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        continue;
+      }
+      throw lastErr;
+    }
+    const content = extractContent(data);
+    if (!content || !content.trim()) {
+      lastErr = new Error('MiniMax API returned empty content');
+      lastErr.response = response;
+      if (attempt < maxAttempts) {
+        console.warn(`callMinimax empty content (attempt ${attempt}/${maxAttempts}), retrying`);
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    if (attempt > 1) console.log(`callMinimax succeeded on attempt ${attempt}`);
+    return response;
   }
 
-  // Validate response shape — must have a non-empty choices[0].message.content.
-  // MiniMax returns HTTP 200 even for some error states (e.g. invalid key) and
-  // can echo the input or return an empty body. Without this check, callers
-  // would silently store the original text and report a "successful" correction.
-  if (!Array.isArray(data.choices) || data.choices.length === 0) {
-    const err = new Error('MiniMax API returned no choices');
-    err.response = response;
-    throw err;
-  }
-  const content = extractContent(data);
-  if (!content || !content.trim()) {
-    const err = new Error('MiniMax API returned empty content');
-    err.response = response;
-    throw err;
-  }
-
-  return response;
+  // Should be unreachable; loop either returns or throws.
+  throw lastErr;
 }
 
 async function correctIndonesianTextChunk(textChunk, apiKey) {
