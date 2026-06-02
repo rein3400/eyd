@@ -4,7 +4,7 @@ const axios = require('axios');
 // (MINIMAX_BASE_URL) for CN region or local testing.
 const MINIMAX_CHAT_URL =
   (process.env.MINIMAX_BASE_URL || 'https://api.minimax.io') + '/v1/text/chatcompletion_v2';
-const MINIMAX_MODEL = 'MiniMax-M3.0-highspeed';
+const MINIMAX_MODEL = 'MiniMax-M3';
 
 function chunkText(text, maxChunkSize = 2500) {
   // Split by paragraphs first
