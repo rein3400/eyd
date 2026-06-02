@@ -6,7 +6,12 @@ const MINIMAX_CHAT_URL =
   (process.env.MINIMAX_BASE_URL || 'https://api.minimax.io') + '/v1/text/chatcompletion_v2';
 const MINIMAX_MODEL = 'MiniMax-M3';
 
-function chunkText(text, maxChunkSize = 2500) {
+// Tunable via env. Defaults are sized for long scientific documents.
+const DEFAULT_CHUNK_SIZE = parseInt(process.env.MINIMAX_CHUNK_SIZE || '6000', 10);
+const DEFAULT_MAX_TOKENS = parseInt(process.env.MINIMAX_MAX_TOKENS || '50000', 10);
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.MINIMAX_TIMEOUT_MS || '600000', 10); // 10 min
+
+function chunkText(text, maxChunkSize = DEFAULT_CHUNK_SIZE) {
   // Split by paragraphs first
   const paragraphs = text.split('\n\n');
   const chunks = [];
@@ -147,7 +152,8 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
   const topP = opts.topP ?? 0.9;
   const frequencyPenalty = opts.frequencyPenalty ?? 0.2;
   const presencePenalty = opts.presencePenalty ?? 0.2;
-  const maxTokens = opts.maxTokens ?? 2000;
+  const maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const timeout = opts.timeout ?? DEFAULT_TIMEOUT_MS;
 
   const response = await axios.post(
     MINIMAX_CHAT_URL,
@@ -168,9 +174,9 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      // MiniMax-M3 (reasoning model) is slow on long inputs. 5 min covers
-      // multi-chunk documents; the per-chunk hard cap is enforced by Render.
-      timeout: 300000
+      // MiniMax-M3 (reasoning model) is slow on long inputs. 10 min covers
+      // large multi-chunk documents; per-chunk cap enforced by Render itself.
+      timeout
     }
   );
 
@@ -242,7 +248,7 @@ ${textChunk}
       topP: 0.9,
       frequencyPenalty: 0.2,
       presencePenalty: 0.2,
-      maxTokens: 2000
+      maxTokens: DEFAULT_MAX_TOKENS
     });
 
     console.log('MiniMax API response received');
@@ -284,7 +290,7 @@ ${textChunk}
         topP: 0.9,
         frequencyPenalty: 0.3,
         presencePenalty: 0.3,
-        maxTokens: 2000
+        maxTokens: DEFAULT_MAX_TOKENS
       });
 
       const explicitContent = extractContent(explicitResponse.data);
@@ -326,19 +332,21 @@ async function correctIndonesianText(text, apiKey) {
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     if (chunk.trim()) {
+      const chunkStart = Date.now();
       try {
-        console.log(`Correcting chunk ${i+1}/${chunks.length}...`);
+        console.log(`[${i+1}/${chunks.length}] Correcting chunk (${chunk.length} chars)...`);
         const correctedChunk = await correctIndonesianTextChunk(chunk, apiKey);
 
         if (correctedChunk && correctedChunk.trim() !== chunk.trim()) {
           correctedChunks.push(correctedChunk);
           successfulCorrections++;
-          console.log(`Chunk ${i+1} corrected successfully`);
+          const elapsed = ((Date.now() - chunkStart) / 1000).toFixed(1);
+          console.log(`[${i+1}/${chunks.length}] OK in ${elapsed}s`);
         } else {
           // AI returned identical or near-identical text — not a useful correction.
           // Don't silently swap in the original; surface the issue and abort so
           // the caller knows nothing was actually fixed.
-          console.warn(`Chunk ${i+1} correction was not improved, aborting`);
+          console.warn(`[${i+1}/${chunks.length}] correction was not improved, aborting`);
           throw new Error(`Chunk ${i+1} correction produced no changes`);
         }
       } catch (error) {
