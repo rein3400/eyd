@@ -10,42 +10,46 @@ const fs = require('fs').promises;
  */
 async function createGoogleDoc(title, content, accessToken) {
   try {
-    // Initialize Google Docs API client
+    if (!accessToken) {
+      throw new Error('Missing access token');
+    }
+
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
-    
-    const docs = google.docs({
-      version: 'v1',
-      auth: auth
-    });
-    
+
+    const docs = google.docs({ version: 'v1', auth });
+
     // Create a new document
     const createResponse = await docs.documents.create({
-      requestBody: {
-        title: title
-      }
+      requestBody: { title }
     });
-    
+
     const documentId = createResponse.data.documentId;
-    
+
     // Insert content into the document
     await docs.documents.batchUpdate({
-      documentId: documentId,
+      documentId,
       requestBody: {
         requests: [{
           insertText: {
-            location: {
-              index: 1
-            },
+            location: { index: 1 },
             text: content
           }
         }]
       }
     });
-    
+
     return documentId;
   } catch (error) {
-    throw new Error(`Failed to create Google Doc: ${error.message}`);
+    // Surface the underlying Google API error message verbatim so the
+    // frontend can show "invalid_grant" / "insufficient scope" / etc.
+    const detail =
+      error.response?.data?.error?.message ||
+      error.message ||
+      'unknown Google API error';
+    const status = error.response?.status || error.code;
+    console.error('createGoogleDoc failed:', status, detail);
+    throw new Error(`Failed to create Google Doc: ${detail}`);
   }
 }
 
