@@ -4,10 +4,12 @@
   "description": "A Micro-SaaS web application that corrects Indonesian scientific papers using the MiniMax-M3.0-highspeed model via the MiniMax API.",
   "main": "server/server.js",
   "scripts": {
+    "postinstall": "npm install --prefix server",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "start": "node server/server.js",
     "server": "cd server && nodemon server.js",
-    "client": "npm start --prefix client",
+    "client": "npm install --prefix client && npm start --prefix client",
+    "prebuild": "npm install --prefix client",
     "build": "npm run build --prefix client"
   },
   "keywords": [
