@@ -147,7 +147,7 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
   const topP = opts.topP ?? 0.9;
   const frequencyPenalty = opts.frequencyPenalty ?? 0.2;
   const presencePenalty = opts.presencePenalty ?? 0.2;
-  const maxTokens = opts.maxTokens ?? 4000;
+  const maxTokens = opts.maxTokens ?? 2000;
 
   const response = await axios.post(
     MINIMAX_CHAT_URL,
@@ -168,7 +168,9 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      timeout: 120000
+      // MiniMax-M3 (reasoning model) is slow on long inputs. 5 min covers
+      // multi-chunk documents; the per-chunk hard cap is enforced by Render.
+      timeout: 300000
     }
   );
 
@@ -240,7 +242,7 @@ ${textChunk}
       topP: 0.9,
       frequencyPenalty: 0.2,
       presencePenalty: 0.2,
-      maxTokens: 4000
+      maxTokens: 2000
     });
 
     console.log('MiniMax API response received');
@@ -282,7 +284,7 @@ ${textChunk}
         topP: 0.9,
         frequencyPenalty: 0.3,
         presencePenalty: 0.3,
-        maxTokens: 4000
+        maxTokens: 2000
       });
 
       const explicitContent = extractContent(explicitResponse.data);
