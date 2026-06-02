@@ -165,7 +165,12 @@ async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
     top_p: topP,
     frequency_penalty: frequencyPenalty,
     presence_penalty: presencePenalty,
-    max_tokens: maxTokens
+    max_tokens: maxTokens,
+    // M3 emits long chain-of-thought by default (often 20k+ chars) which
+    // blows the per-call latency to 60+ seconds and triggers Netlify's
+    // 504 proxy timeout. Disabling reasoning keeps quality intact for
+    // EYD correction while cutting response time ~5x.
+    reasoning: { enabled: false }
   };
 
   const config = {
