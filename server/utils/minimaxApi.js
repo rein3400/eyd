@@ -1,6 +1,9 @@
 const axios = require('axios');
 
-const MINIMAX_CHAT_URL = 'https://api.minimax.chat/v1/text/chatcompletion_v2';
+// MiniMax base URL differs by region. Default to global; allow override via env
+// (MINIMAX_BASE_URL) for CN region or local testing.
+const MINIMAX_CHAT_URL =
+  (process.env.MINIMAX_BASE_URL || 'https://api.minimax.io') + '/v1/text/chatcompletion_v2';
 const MINIMAX_MODEL = 'MiniMax-M3.0-highspeed';
 
 function chunkText(text, maxChunkSize = 2500) {
@@ -94,11 +97,14 @@ function evaluateCorrectionQuality(original, corrected) {
 }
 
 // Extract plain text from a MiniMax chat-completions response.
-// Response shape: { base_resp: {status_code, status_msg}, choices: [{message: {content, role}, ...}], ... }
+// Observed shapes:
+//   { choices: [{ message: { content: "string" } }] }            -- simple
+//   { choices: [{ message: { content: "json-encoded string" } }] } -- some surfaces
+//   { choices: [{ message: { content: [{type:"text", text:"..."}, {type:"thinking", ...}] } }] }
+//      -- MiniMax-M3 with reasoning blocks; we want the first text block.
 function extractContent(responseData) {
   if (!responseData) return null;
 
-  // Some MiniMax surfaces wrap content as a JSON-encoded string inside the message.
   const choice = responseData.choices && responseData.choices[0];
   if (!choice) return null;
 
@@ -106,21 +112,34 @@ function extractContent(responseData) {
   let raw = message.content;
   if (raw == null) return null;
 
-  // If content is itself a JSON string, try to unwrap once.
+  // Array of typed blocks (M3 reasoning models): pick the first text block.
+  if (Array.isArray(raw)) {
+    const textBlock = raw.find((b) => b && (b.type === 'text' || typeof b.text === 'string'));
+    if (textBlock && typeof textBlock.text === 'string') {
+      return textBlock.text;
+    }
+    return null;
+  }
+
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed);
-        if (typeof parsed === 'string') raw = parsed;
-        else if (parsed && typeof parsed.content === 'string') raw = parsed.content;
+        if (typeof parsed === 'string') return parsed;
+        if (parsed && typeof parsed.content === 'string') return parsed.content;
+        if (Array.isArray(parsed)) {
+          const tb = parsed.find((b) => b && (b.type === 'text' || typeof b.text === 'string'));
+          if (tb && typeof tb.text === 'string') return tb.text;
+        }
       } catch (_) {
-        // Not JSON — leave as-is.
+        // Not JSON — return as-is.
       }
     }
+    return raw;
   }
 
-  return typeof raw === 'string' ? raw : null;
+  return null;
 }
 
 async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
@@ -343,5 +362,6 @@ async function correctIndonesianText(text, apiKey) {
 module.exports = {
   correctIndonesianText,
   chunkText,
+  extractContent,
   MINIMAX_MODEL
 };
