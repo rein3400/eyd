@@ -345,10 +345,10 @@ function App() {
                 {loading ? (
                   <div className="button-content">
                     <div className="loading-spinner"></div>
-                    Generating PDF...
+                    Generating file...
                   </div>
                 ) : (
-                  'Download as PDF'
+                  'Download as TXT'
                 )}
               </button>
               
