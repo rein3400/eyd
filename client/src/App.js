@@ -181,7 +181,7 @@ function App() {
       <header className="App-header">
         <h1>📚 Indonesian Scientific Paper Corrector</h1>
         <p>Upload your Indonesian scientific paper in DOCX or PDF format for grammar and spelling correction.</p>
-        <p>Powered by google/gemini-2.5-flash via OpenRouter.</p>
+        <p>Powered by MiniMax-M3.0-highspeed.</p>
       </header>
 
       <main className="App-main">
@@ -245,10 +245,10 @@ function App() {
               {loading ? (
                 <div className="button-content">
                   <div className="loading-spinner"></div>
-                  Correcting with Grok-4.1-Fast...
+                  Memperbaiki teks dengan MiniMax...
                 </div>
               ) : (
-                '.correct Text with Grok-4.1-Fast'
+                'Perbaiki Teks dengan MiniMax'
               )}
             </button>
           </div>

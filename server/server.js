@@ -21,23 +21,23 @@ console.log('Loading .env from:', envPath);
 dotenv.config({ path: envPath });
 
 // Log API key (masked for security)
-console.log('Environment variables loaded. OpenRouter API Key present:', 
-  process.env.OPENROUTER_API_KEY ? 'Yes (key: ' + process.env.OPENROUTER_API_KEY.substring(0, 8) + '...)' : 'No');
+console.log('Environment variables loaded. MiniMax API Key present:',
+  process.env.MINIMAX_API_KEY ? 'Yes (key: ' + process.env.MINIMAX_API_KEY.substring(0, 8) + '...)' : 'No');
 
 // If API key is not found, try to use it from the root directory .env file
-if (!process.env.OPENROUTER_API_KEY) {
+if (!process.env.MINIMAX_API_KEY) {
   console.log('API key not found in server .env. Trying root directory...');
   const rootEnvPath = path.resolve(__dirname, '../.env');
   console.log('Loading .env from root:', rootEnvPath);
   dotenv.config({ path: rootEnvPath });
-  
-  console.log('Environment variables loaded from root. OpenRouter API Key present:', 
-    process.env.OPENROUTER_API_KEY ? 'Yes (key: ' + process.env.OPENROUTER_API_KEY.substring(0, 8) + '...)' : 'No');
+
+  console.log('Environment variables loaded from root. MiniMax API Key present:',
+    process.env.MINIMAX_API_KEY ? 'Yes (key: ' + process.env.MINIMAX_API_KEY.substring(0, 8) + '...)' : 'No');
 }
 
 // Import text extraction utilities
 const { extractTextFromDocx, extractTextFromPdf } = require('./utils/textExtraction');
-const { correctIndonesianText, chunkText } = require('./utils/openRouterApi');
+const { correctIndonesianText, chunkText } = require('./utils/minimaxApi');
 const { createGoogleDoc, getGoogleDocsUrl } = require('./utils/googleDocsExport');
 
 const app = express();
@@ -148,19 +148,19 @@ app.post('/api/correct', async (req, res) => {
     console.log('Text preview (first 100 chars):', text.substring(0, 100)); // Log text preview
     
     // Check API key availability
-    if (!process.env.OPENROUTER_API_KEY) {
-      console.error('OPENROUTER_API_KEY not found in environment variables'); // Log missing API key
+    if (!process.env.MINIMAX_API_KEY) {
+      console.error('MINIMAX_API_KEY not found in environment variables'); // Log missing API key
       console.log('Environment variables:', Object.keys(process.env)); // Log all env vars
       return res.status(500).json({ error: 'API key not configured' });
     }
-    
-    console.log('API key available (first 8 chars):', process.env.OPENROUTER_API_KEY.substring(0, 8)); // Log partial API key
+
+    console.log('API key available (first 8 chars):', process.env.MINIMAX_API_KEY.substring(0, 8)); // Log partial API key
     console.log('Calling correctIndonesianText...'); // Log API call
 
-    // Correct the text using OpenRouter API
+    // Correct the text using the MiniMax API
     try {
       const startTime = Date.now();
-      const correctedText = await correctIndonesianText(text, process.env.OPENROUTER_API_KEY);
+      const correctedText = await correctIndonesianText(text, process.env.MINIMAX_API_KEY);
       const endTime = Date.now();
       
       console.log('Correction completed successfully. Sending response.'); // Log completion

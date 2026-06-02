@@ -23,14 +23,19 @@ Follow these steps to deploy the application to Netlify:
 
 4. **Environment Variables**
    - In Netlify dashboard, go to Site settings > Build & deploy > Environment
-   - Add the following environment variable:
+   - Add the following environment variable for the **client build**:
      ```
      REACT_APP_API_URL = /api
      ```
+   - The MiniMax API key (`MINIMAX_API_KEY`) is **not** a Netlify env var. It lives on the
+     backend host (Render/Railway/Fly/etc.) where the Express server runs. The static Netlify
+     site only sees public values prefixed with `REACT_APP_`. Do not put `MINIMAX_API_KEY` in
+     the Netlify site env — it would be bundled into the client JS and leak.
 
 5. **API Redirects**
-   - The `netlify.toml` file already contains redirect rules for API calls
-   - Make sure to update the target URL in the redirects section to point to your actual backend server:
+   - The `netlify.toml` file already contains redirect rules for API calls pointing at
+     `https://eyd-jasa.onrender.com`. If you move the backend to a different host, update
+     the target URL in the redirects section:
      ```toml
      [[redirects]]
        from = "/api/*"

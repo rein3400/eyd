@@ -1,5 +1,8 @@
 const axios = require('axios');
 
+const MINIMAX_CHAT_URL = 'https://api.minimax.chat/v1/text/chatcompletion_v2';
+const MINIMAX_MODEL = 'MiniMax-M3.0-highspeed';
+
 function chunkText(text, maxChunkSize = 2500) {
   // Split by paragraphs first
   const paragraphs = text.split('\n\n');
@@ -28,7 +31,7 @@ function chunkText(text, maxChunkSize = 2500) {
       // Split by sentences
       const sentences = chunk.split(/(?<=[.!?])\s+/);
       let subChunk = "";
-      
+
       for (const sentence of sentences) {
         if (subChunk.length + sentence.length > maxChunkSize && subChunk) {
           finalChunks.push(subChunk.trim());
@@ -37,7 +40,7 @@ function chunkText(text, maxChunkSize = 2500) {
           subChunk += sentence + " ";
         }
       }
-      
+
       if (subChunk) {
         finalChunks.push(subChunk.trim());
       }
@@ -53,25 +56,25 @@ function chunkText(text, maxChunkSize = 2500) {
 function evaluateCorrectionQuality(original, corrected) {
   const orig = original.trim();
   const corr = corrected.trim();
-  
+
   // Basic checks
   if (!corr) return { quality: 'poor', reason: 'Empty correction' };
   if (orig === corr) return { quality: 'poor', reason: 'No changes made' };
-  
+
   // Length-based checks
   const lengthDiff = Math.abs(orig.length - corr.length);
   if (lengthDiff < 5) return { quality: 'fair', reason: 'Minimal changes' };
-  
+
   // Content-based checks (simple heuristics)
   const origWords = orig.split(/\s+/).length;
   const corrWords = corr.split(/\s+/).length;
-  
+
   // Check if word count changed significantly
   const wordDiffRatio = Math.abs(origWords - corrWords) / origWords;
   if (wordDiffRatio < 0.05) {
     return { quality: 'fair', reason: 'Minimal word count changes' };
   }
-  
+
   // Check for common improvement patterns
   const improvements = {
     hasCapitalization: /[A-Z][a-z]/.test(corr) && !/[A-Z][a-z]/.test(orig),
@@ -79,35 +82,105 @@ function evaluateCorrectionQuality(original, corrected) {
     hasFormalTerms: /\b(Oleh\s+karena\s+itu|Selanjutnya|Namun|Sebaliknya)\b/i.test(corr),
     hasProperSpacing: !/\s{3,}/.test(corr) && /\s{2,}/.test(orig)
   };
-  
+
   const improvementCount = Object.values(improvements).filter(Boolean).length;
   if (improvementCount >= 2) {
     return { quality: 'excellent', reason: 'Multiple improvements detected' };
   } else if (improvementCount >= 1) {
     return { quality: 'good', reason: 'Some improvements detected' };
   }
-  
+
   return { quality: 'fair', reason: 'Changes detected but quality uncertain' };
+}
+
+// Extract plain text from a MiniMax chat-completions response.
+// Response shape: { base_resp: {status_code, status_msg}, choices: [{message: {content, role}, ...}], ... }
+function extractContent(responseData) {
+  if (!responseData) return null;
+
+  // Some MiniMax surfaces wrap content as a JSON-encoded string inside the message.
+  const choice = responseData.choices && responseData.choices[0];
+  if (!choice) return null;
+
+  const message = choice.message || choice;
+  let raw = message.content;
+  if (raw == null) return null;
+
+  // If content is itself a JSON string, try to unwrap once.
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === 'string') raw = parsed;
+        else if (parsed && typeof parsed.content === 'string') raw = parsed.content;
+      } catch (_) {
+        // Not JSON — leave as-is.
+      }
+    }
+  }
+
+  return typeof raw === 'string' ? raw : null;
+}
+
+async function callMinimax(systemPrompt, userPrompt, apiKey, opts = {}) {
+  const temperature = opts.temperature ?? 0.1;
+  const topP = opts.topP ?? 0.9;
+  const frequencyPenalty = opts.frequencyPenalty ?? 0.2;
+  const presencePenalty = opts.presencePenalty ?? 0.2;
+  const maxTokens = opts.maxTokens ?? 4000;
+
+  const response = await axios.post(
+    MINIMAX_CHAT_URL,
+    {
+      model: MINIMAX_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature,
+      top_p: topP,
+      frequency_penalty: frequencyPenalty,
+      presence_penalty: presencePenalty,
+      max_tokens: maxTokens
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    }
+  );
+
+  // Surface MiniMax base_resp errors as proper exceptions so the outer catch logs them.
+  const base = response.data && response.data.base_resp;
+  if (base && base.status_code != null && base.status_code !== 0) {
+    const err = new Error(`MiniMax API error: ${base.status_code} ${base.status_msg || ''}`.trim());
+    err.response = response;
+    throw err;
+  }
+
+  return response;
 }
 
 async function correctIndonesianTextChunk(textChunk, apiKey) {
   try {
     if (!apiKey) {
-      console.error('API key validation failed: API key not found'); // Log API key error
-      throw new Error("API key not found. Please provide OPENROUTER_API_KEY.");
+      console.error('API key validation failed: API key not found');
+      throw new Error("API key not found. Please provide MINIMAX_API_KEY.");
     }
 
-    console.log('Starting text correction...'); // Log start
-    console.log('Text chunk length:', textChunk.length); // Log chunk size
-    console.log('API key available (first 8 chars):', apiKey.substring(0, 8)); // Log partial API key
-    
-    // Validate input
+    console.log('Starting text correction...');
+    console.log('Text chunk length:', textChunk.length);
+    console.log('API key available (first 8 chars):', apiKey.substring(0, 8));
+
     if (!textChunk || textChunk.trim() === '') {
-      console.error('Text validation failed: empty or whitespace text'); // Log empty text
+      console.error('Text validation failed: empty or whitespace text');
       throw new Error('Text cannot be empty');
     }
-    
-    // Prepare the prompt for correction with specific instructions for Indonesian
+
+    // System prompt: Indonesian EYD editor persona.
     const systemPrompt = "Anda adalah editor jurnal ilmiah profesional Indonesia dengan keahlian khusus dalam EYD (Ejaan Yang Disempurnakan). Tugas Anda adalah: 1. Memperbaiki kesalahan ejaan berdasarkan EYD terbaru; 2. Memperbaiki tata bahasa Indonesia baku; 3. Memperbaiki struktur kalimat agar lebih akademis dan formal; 4. Menjaga konsistensi istilah ilmiah; 5. Mempertahankan format dan struktur dokumen asli; 6. HANYA mengoutput teks yang sudah diperbaiki TANPA komentar tambahan; 7. JANGAN mempertahankan teks asli jika ada kesalahan; 8. FOKUS pada perbaikan substansial, bukan hanya perubahan kosmetik. Contoh perbaikan yang diharapkan: - 'teori' → 'teori' (ejaan); - 'di lihat' → 'dilihat' (tata bahasa); - 'karena itu' → 'Oleh karena itu' (formalitas); - 'dll' → 'dan lain-lain' (akademis)";
 
     const userPrompt = `Sebagai editor jurnal ilmiah profesional Indonesia, perbaiki teks ilmiah berbahasa Indonesia berikut dengan ketentuan:
@@ -123,71 +196,39 @@ ${textChunk}
 
  Teks yang sudah diperbaiki:`;
 
-    console.log('Sending request to OpenRouter API...'); // Log API request
-    console.log('System prompt:', systemPrompt.substring(0, 100) + '...'); // Log partial prompt
-    
-    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: "google/gemini-2.5-flash",
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userPrompt
-        }
-      ],
-      temperature: 0.1, // Reduced temperature for more deterministic output
-      top_p: 0.9, // Added top_p sampling for better quality
-      frequency_penalty: 0.2, // Slight penalty for repetition
-      presence_penalty: 0.2, // Slight penalty for new topics
-      max_tokens: 4000
-    }, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      }
+    console.log('Sending request to MiniMax API...');
+    console.log('Model:', MINIMAX_MODEL);
+
+    const response = await callMinimax(systemPrompt, userPrompt, apiKey, {
+      temperature: 0.1,
+      topP: 0.9,
+      frequencyPenalty: 0.2,
+      presencePenalty: 0.2,
+      maxTokens: 4000
     });
-    
-    console.log('OpenRouter API response received'); // Log response
-    console.log('Response status:', response.status); // Log response status
-    console.log('Response data keys:', Object.keys(response.data)); // Log response structure
-    
-    // Check if response has valid data
+
+    console.log('MiniMax API response received');
+    console.log('Response status:', response.status);
+
     if (!response.data) {
-      console.error('Invalid API response format: no data'); // Log response error
       throw new Error('Invalid API response: no data');
     }
-    
-    if (!response.data.choices) {
-      console.error('Invalid API response format: no choices array'); // Log response error
-      throw new Error('Invalid API response: no choices array');
+
+    const content = extractContent(response.data);
+    if (!content) {
+      console.error('Invalid API response format: no extractable content. Keys:', Object.keys(response.data));
+      throw new Error('Invalid API response: no message content');
     }
-    
-    if (!response.data.choices[0]) {
-      console.error('Invalid API response format: no first choice'); // Log response error
-      throw new Error('Invalid API response: no first choice');
-    }
-    
-    if (!response.data.choices[0].message) {
-      console.error('Invalid API response format: no message in first choice'); // Log response error
-      throw new Error('Invalid API response: no message in first choice');
-    }
-    
-    const content = response.data.choices[0].message.content;
-    console.log('Corrected text length:', content.length); // Log corrected text length
-    console.log('Original text length:', textChunk.length); // Log original text length
-    
-    // Evaluate correction quality
+
+    console.log('Corrected text length:', content.length);
+    console.log('Original text length:', textChunk.length);
+
     const qualityEvaluation = evaluateCorrectionQuality(textChunk, content);
-    console.log('Quality evaluation:', qualityEvaluation); // Log quality evaluation
-    
-    // If quality is poor, attempt with explicit prompt
+    console.log('Quality evaluation:', qualityEvaluation);
+
     if (qualityEvaluation.quality === 'poor') {
-      console.warn('Initial correction quality is poor. Attempting with more explicit prompt.'); // Log warning
-      
-      // Try again with a more explicit prompt
+      console.warn('Initial correction quality is poor. Attempting with more explicit prompt.');
+
       const explicitUserPrompt = `SEBAGAI EDITOR JURNAL ILMIAH INDONESIA PROFESIONAL, LAKUKAN PERUBAHAN SUBSTANSIAL PADA TEKS BERIKUT:
  1. Perbaiki kesalahan ejaan berdasarkan EYD terbaru
  2. Perbaiki tata bahasa Indonesia baku
@@ -199,47 +240,30 @@ ${textChunk}
 ${textChunk}
 
  TEKS YANG SUDAH DIPERBAIKI:`;
-      
-      const explicitResponse = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: explicitUserPrompt
-          }
-        ],
-        temperature: 0.7, // Higher temperature for more creative changes
-        top_p: 0.9,
-        frequency_penalty: 0.3,
-        presence_penalty: 0.3,
-        max_tokens: 4000
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
+
+      const explicitResponse = await callMinimax(systemPrompt, explicitUserPrompt, apiKey, {
+        temperature: 0.7,
+        topP: 0.9,
+        frequencyPenalty: 0.3,
+        presencePenalty: 0.3,
+        maxTokens: 4000
       });
-      
-      if (explicitResponse.data && explicitResponse.data.choices && explicitResponse.data.choices[0] && explicitResponse.data.choices[0].message) {
-        const explicitContent = explicitResponse.data.choices[0].message.content;
+
+      const explicitContent = extractContent(explicitResponse.data);
+      if (explicitContent) {
         const explicitQuality = evaluateCorrectionQuality(textChunk, explicitContent);
-        console.log('Explicit correction quality:', explicitQuality); // Log quality
-        
-        // Check if explicit correction is better
+        console.log('Explicit correction quality:', explicitQuality);
+
         if (explicitQuality.quality !== 'poor') {
-          console.log('Using explicit correction result'); // Log success
-          console.log('Explicit correction length:', explicitContent.length); // Log length
+          console.log('Using explicit correction result');
+          console.log('Explicit correction length:', explicitContent.length);
           return explicitContent;
         } else {
-          console.warn('Explicit correction also resulted in poor quality'); // Log warning
+          console.warn('Explicit correction also resulted in poor quality');
         }
       }
     }
-    
+
     return content;
   } catch (error) {
     console.error('Error in correctIndonesianTextChunk:', error.message);
@@ -248,43 +272,36 @@ ${textChunk}
       console.error('Error response data:', JSON.stringify(error.response.data));
       console.error('Error response status:', error.response.status);
     }
-    throw new Error('Error calling OpenRouter API: ' + error.message);
+    throw new Error('Error calling MiniMax API: ' + error.message);
   }
-  
 }
 
 async function correctIndonesianText(text, apiKey) {
-  console.log('Starting text correction process for text length:', text.length); // Log start
-  
-  // Split text into chunks to optimize token usage
-  const chunks = chunkText(text);
-  console.log('Text split into', chunks.length, 'chunks'); // Log chunks count
-  
-  const correctedChunks = [];
+  console.log('Starting text correction process for text length:', text.length);
 
-  // Process chunks with progress tracking
+  const chunks = chunkText(text);
+  console.log('Text split into', chunks.length, 'chunks');
+
+  const correctedChunks = [];
   let successfulCorrections = 0;
   let failedCorrections = 0;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (chunk.trim()) { // Only process non-empty chunks
+    if (chunk.trim()) {
       try {
-        console.log(`Correcting chunk ${i+1}/${chunks.length}...`); // Log chunk number
+        console.log(`Correcting chunk ${i+1}/${chunks.length}...`);
         const correctedChunk = await correctIndonesianTextChunk(chunk, apiKey);
-        
-        // Additional validation for chunk quality
+
         if (correctedChunk && correctedChunk.trim() !== chunk.trim()) {
           correctedChunks.push(correctedChunk);
           successfulCorrections++;
-          console.log(`Chunk ${i+1} corrected successfully`); // Log success
+          console.log(`Chunk ${i+1} corrected successfully`);
         } else {
-          // If correction didn't improve the text, keep original
           correctedChunks.push(chunk);
           console.warn(`Chunk ${i+1} correction was not improved, keeping original`);
         }
       } catch (error) {
-        // If there's an error with one chunk, return the original for that chunk
         console.error(`Error correcting chunk ${i+1}: ${error.message}`);
         correctedChunks.push(chunk);
         failedCorrections++;
@@ -292,20 +309,19 @@ async function correctIndonesianText(text, apiKey) {
     }
   }
 
-  // Join all corrected chunks
   const correctedText = correctedChunks.join("\n\n");
-  console.log('Correction complete. Original text length:', text.length, 'Corrected text length:', correctedText.length); // Log completion
-  console.log('Successful corrections:', successfulCorrections, 'Failed corrections:', failedCorrections); // Log statistics
-  
-  // Final quality check
+  console.log('Correction complete. Original text length:', text.length, 'Corrected text length:', correctedText.length);
+  console.log('Successful corrections:', successfulCorrections, 'Failed corrections:', failedCorrections);
+
   if (correctedText.trim() === text.trim()) {
     console.warn('Final text is identical to original. This may indicate issues with the correction process.');
   }
-  
+
   return correctedText;
 }
 
 module.exports = {
   correctIndonesianText,
-  chunkText
+  chunkText,
+  MINIMAX_MODEL
 };
