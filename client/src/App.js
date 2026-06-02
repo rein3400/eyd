@@ -10,10 +10,44 @@ function App() {
   const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(''); // human-readable progress for long docs
   const [googleDocsUrl, setGoogleDocsUrl] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState('');
+
+  // Split text on paragraph boundaries. Each chunk stays well under
+  // Netlify's ~30s proxy timeout by keeping AI processing short per call.
+  const chunkText = (text, maxChunkSize = 3000) => {
+    const paragraphs = text.split(/\n\s*\n/);
+    const chunks = [];
+    let current = '';
+    for (const p of paragraphs) {
+      if (current.length + p.length + 2 > maxChunkSize && current) {
+        chunks.push(current.trim());
+        current = p;
+      } else {
+        current = current ? current + '\n\n' + p : p;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    // Sub-split any oversized chunk by sentences
+    const out = [];
+    for (const c of chunks) {
+      if (c.length <= maxChunkSize) { out.push(c); continue; }
+      const sentences = c.split(/(?<=[.!?])\s+/);
+      let sub = '';
+      for (const s of sentences) {
+        if (sub.length + s.length > maxChunkSize && sub) {
+          out.push(sub.trim()); sub = s;
+        } else {
+          sub = sub ? sub + ' ' + s : s;
+        }
+      }
+      if (sub.trim()) out.push(sub.trim());
+    }
+    return out;
+  };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -71,35 +105,73 @@ function App() {
 
     setLoading(true);
     setError('');
+    setProgress('');
 
-    console.log('Sending correction request with text length:', originalText.length); // Log request
-    
-    try {
-      const response = await axios.post('/api/correct', { text: originalText });
+    console.log('Sending correction request with text length:', originalText.length);
 
-      console.log('Correction response received:', response.data); // Log response
+    // Split into small chunks so each request stays under Netlify's
+    // ~30s proxy timeout. AI processes one chunk per call.
+    const chunks = chunkText(originalText);
+    console.log(`Split into ${chunks.length} chunks for client-side processing`);
 
-      if (response.data.success) {
-        if (response.data.correctedText) {
-          console.log('Corrected text length:', response.data.correctedText.length); // Log corrected text
+    if (chunks.length === 0) {
+      setError('No text to correct');
+      setLoading(false);
+      return;
+    }
+
+    // For short docs (1 chunk), keep the original single-request path.
+    if (chunks.length === 1) {
+      try {
+        const response = await axios.post('/api/correct', { text: chunks[0] }, { timeout: 90000 });
+        if (response.data.success && response.data.correctedText) {
           setCorrectedText(response.data.correctedText);
-          
-          // Show processing time if available
           if (response.data.processingTime) {
             console.log('Server processing time:', response.data.processingTime, 'ms');
           }
         } else {
-          console.error('No correctedText in response'); // Log missing correctedText
-          setError('No corrected text received');
+          setError(response.data.error || 'Error correcting text');
         }
-      } else {
-        setError(response.data.error || 'Error correcting text');
+      } catch (err) {
+        console.error('Correction error:', err);
+        setError(err.response?.data?.error || 'Error correcting text');
+      } finally {
+        setLoading(false);
+        setProgress('');
       }
+      return;
+    }
+
+    // Multi-chunk: sequential requests, aggregate results, show progress.
+    const corrected = [];
+    try {
+      for (let i = 0; i < chunks.length; i++) {
+        setProgress(`Memproses bagian ${i + 1} dari ${chunks.length}…`);
+        console.log(`Sending chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+
+        const response = await axios.post(
+          '/api/correct',
+          { text: chunks[i] },
+          { timeout: 90000 }
+        );
+
+        if (response.data.success && response.data.correctedText) {
+          corrected.push(response.data.correctedText);
+        } else {
+          throw new Error(response.data.error || `Chunk ${i + 1} returned no text`);
+        }
+      }
+      setCorrectedText(corrected.join('\n\n'));
     } catch (err) {
-      console.error('Correction error:', err); // Log error details
-      setError(err.response?.data?.error || 'Error correcting text');
+      console.error('Correction error:', err);
+      setError(err.response?.data?.error || err.message || 'Error correcting text');
+      // If we have partial results, show them so user doesn't lose work.
+      if (corrected.length > 0) {
+        setCorrectedText(corrected.join('\n\n') + '\n\n[-- koreksi dihentikan di sini karena error --]');
+      }
     } finally {
       setLoading(false);
+      setProgress('');
     }
   };
 
@@ -240,7 +312,7 @@ function App() {
               {loading ? (
                 <div className="button-content">
                   <div className="loading-spinner"></div>
-                  Memperbaiki teks dengan MiniMax...
+                  {progress || 'Memperbaiki teks dengan MiniMax...'}
                 </div>
               ) : (
                 'Perbaiki Teks dengan MiniMax'
