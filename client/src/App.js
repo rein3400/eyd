@@ -176,7 +176,7 @@ function App() {
       <header className="App-header">
         <h1>📚 Indonesian Scientific Paper Corrector</h1>
         <p>Upload your Indonesian scientific paper in DOCX or PDF format for grammar and spelling correction.</p>
-        <p>Powered by MiniMax-M3.0-highspeed.</p>
+        <p>Powered by MiniMax-M3.</p>
       </header>
 
       <main className="App-main">
