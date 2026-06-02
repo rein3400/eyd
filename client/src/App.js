@@ -21,9 +21,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState('');
 
-  // Split text on paragraph boundaries. Each chunk stays well under
-  // Netlify's ~30s proxy timeout by keeping AI processing short per call.
-  const chunkText = (text, maxChunkSize = 3000) => {
+  // Split text on paragraph boundaries. Each chunk stays under ~30s of
+  // MiniMax processing time so the 180s axios timeout covers cold start + 3 chunks.
+  const chunkText = (text, maxChunkSize = 1500) => {
     const paragraphs = text.split(/\n\s*\n/);
     const chunks = [];
     let current = '';
@@ -128,7 +128,7 @@ function App() {
     // For short docs (1 chunk), keep the original single-request path.
     if (chunks.length === 1) {
       try {
-        const response = await axios.post(`${API_BASE_URL}/api/correct`, { text: chunks[0] }, { timeout: 90000 });
+        const response = await axios.post(`${API_BASE_URL}/api/correct`, { text: chunks[0] }, { timeout: 180000 });
         if (response.data.success && response.data.correctedText) {
           setCorrectedText(response.data.correctedText);
           if (response.data.processingTime) {
@@ -157,7 +157,7 @@ function App() {
         const response = await axios.post(
           `${API_BASE_URL}/api/correct`,
           { text: chunks[i] },
-          { timeout: 90000 }
+          { timeout: 180000 }
         );
 
         if (response.data.success && response.data.correctedText) {
