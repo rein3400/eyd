@@ -3,6 +3,11 @@ import axios from 'axios';
 import GoogleSignIn from './components/GoogleSignIn';
 import './App.css';
 
+// API base URL. In production we call Render directly to avoid Netlify's
+// static redirect timeout (CORS is allow-all on the backend). For local
+// dev the CRA proxy in client/package.json routes /api/* to localhost:5000.
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+
 function App() {
   const [file, setFile] = useState(null);
   const [originalText, setOriginalText] = useState('');
@@ -72,7 +77,7 @@ function App() {
 
     try {
       console.log('Sending upload request...'); // Log request start
-      const response = await axios.post('/api/upload', formData, {
+      const response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
@@ -123,7 +128,7 @@ function App() {
     // For short docs (1 chunk), keep the original single-request path.
     if (chunks.length === 1) {
       try {
-        const response = await axios.post('/api/correct', { text: chunks[0] }, { timeout: 90000 });
+        const response = await axios.post(`${API_BASE_URL}/api/correct`, { text: chunks[0] }, { timeout: 90000 });
         if (response.data.success && response.data.correctedText) {
           setCorrectedText(response.data.correctedText);
           if (response.data.processingTime) {
@@ -150,7 +155,7 @@ function App() {
         console.log(`Sending chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
 
         const response = await axios.post(
-          '/api/correct',
+          `${API_BASE_URL}/api/correct`,
           { text: chunks[i] },
           { timeout: 90000 }
         );
@@ -220,7 +225,7 @@ function App() {
 
     try {
       console.log('Exporting to Google Docs with text length:', correctedText.length);
-      const response = await axios.post('/api/export/google-docs', {
+      const response = await axios.post(`${API_BASE_URL}/api/export/google-docs`, {
         text: correctedText,
         title: fileName.replace(/\.[^/.]+$/, '') + ' - Corrected',
         accessToken: googleAccessToken
