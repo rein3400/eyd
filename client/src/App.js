@@ -3,9 +3,6 @@ import axios from 'axios';
 import GoogleSignIn from './components/GoogleSignIn';
 import './App.css';
 
-// Use environment variable for API URL or fallback to localhost
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
 function App() {
   const [file, setFile] = useState(null);
   const [originalText, setOriginalText] = useState('');
@@ -78,10 +75,8 @@ function App() {
     console.log('Sending correction request with text length:', originalText.length); // Log request
     
     try {
-      const startTime = Date.now();
       const response = await axios.post('/api/correct', { text: originalText });
-      const endTime = Date.now();
-      
+
       console.log('Correction response received:', response.data); // Log response
 
       if (response.data.success) {
