@@ -61,10 +61,20 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (
-      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // DOCX
-      file.mimetype === 'application/pdf' // PDF
-    ) {
+    // Accept by mimetype OR by file extension as a fallback. Some browsers
+    // (Firefox, certain Edge versions) send application/zip for .docx files
+    // since DOCX is a ZIP container, which would otherwise be rejected.
+    const name = (file.originalname || '').toLowerCase();
+    const isDocx =
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.mimetype === 'application/zip' ||
+      file.mimetype === 'application/octet-stream' ||
+      name.endsWith('.docx');
+    const isPdf =
+      file.mimetype === 'application/pdf' ||
+      name.endsWith('.pdf');
+
+    if (isDocx || isPdf) {
       cb(null, true);
     } else {
       cb(new Error('Invalid file type. Only DOCX and PDF files are allowed.'));
