@@ -55,7 +55,7 @@ A full-stack Micro-SaaS web application that corrects Indonesian scientific pape
    MINIMAX_API_KEY=your_minimax_api_key_here
    ```
 
-   > ⚠ The `MINIMAX_API_KEY` must live **server-side only**. Never expose it via `REACT_APP_*` (those get bundled into the client and become public). Set it as a Netlify/Render env var on the backend, never on the static-site build.
+   > ⚠ The `MINIMAX_API_KEY` must live **server-side only**. Never expose it via `REACT_APP_*` (those get bundled into the client and become public). Set it as a Cloudflare Pages / Render env var on the backend, never on the static-site build.
 
 ## Usage
 
@@ -112,7 +112,7 @@ indonesian-paper-corrector/
 ## Security Notes
 
 - `MINIMAX_API_KEY` is read by the Express server only. It is **never** read or referenced by any file under `client/`.
-- Do not add `MINIMAX_API_KEY` to Netlify's "Build & deploy > Environment" — that env is shipped to the static-site build. Add it on the backend host (Render, Railway, Fly, etc.) where the Express server actually runs.
+- Do not add `MINIMAX_API_KEY` to Cloudflare Pages' build environment — that env is shipped to the static-site build. Add it on the backend host (Render, Railway, Fly, etc.) where the Express server actually runs.
 - Client-side env vars (`REACT_APP_API_URL`, `REACT_APP_GOOGLE_CLIENT_ID`) are public by design and OK to expose.
 
 ## Optimization

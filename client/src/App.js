@@ -3,10 +3,14 @@ import axios from 'axios';
 import GoogleSignIn from './components/GoogleSignIn';
 import './App.css';
 
-// API base URL. In production we call Render directly to avoid Netlify's
-// static redirect timeout (CORS is allow-all on the backend). For local
-// dev the CRA proxy in client/package.json routes /api/* to localhost:5000.
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+// API base URL: the API origin only — do not include a path or trailing
+// slash. The source code appends `/api/...` for each endpoint, so the
+// final URL is `${API_BASE_URL}/api/upload` etc. For local dev leave this
+// empty: the CRA proxy in client/package.json routes the resulting
+// relative `/api/*` calls to http://localhost:5000. In production set
+// this to the Render origin (e.g. `https://eyd-jasa.onrender.com`) in
+// the Cloudflare Pages env-var settings.
+const API_BASE_URL = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
 
 function App() {
   const [file, setFile] = useState(null);
@@ -114,8 +118,8 @@ function App() {
 
     console.log('Sending correction request with text length:', originalText.length);
 
-    // Split into small chunks so each request stays under Netlify's
-    // ~30s proxy timeout. AI processes one chunk per call.
+    // Split into small chunks so each request finishes well under the
+    // 180s axios timeout. AI processes one chunk per call.
     const chunks = chunkText(originalText);
     console.log(`Split into ${chunks.length} chunks for client-side processing`);
 
