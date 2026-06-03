@@ -1,9 +1,0 @@
-[build]
-  command = "npm install --prefix client && npm install --prefix server && npm run build --prefix client"
-  publish = "client/build"
-  base = "/"
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
