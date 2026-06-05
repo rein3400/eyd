@@ -68,8 +68,34 @@ const GoogleSignIn = ({ onSuccess, onError }) => {
         scope: DOCS_SCOPE,
         callback: handleTokenResponse,
         error_callback: (err) => {
+          // GIS surfaces a small set of error types. We translate each into a
+          // user-actionable message so "Popup window closed" alone doesn't
+          // hide the real cause (typically a missing Authorized JavaScript
+          // origin, a popup blocker, or a too-restrictive browser setting).
           console.error('OAuth token error:', err);
-          onError?.('Google authorization failed: ' + (err.message || err.type || 'unknown'));
+          const type = err?.type || '';
+          let msg;
+          switch (type) {
+            case 'popup_closed':
+            case 'popup_closed_by_user':
+              msg = 'Sign-in popup was closed before authorization completed. Please try again and accept the Google Docs permission.';
+              break;
+            case 'popup_blocked':
+              msg = 'Your browser blocked the sign-in popup. Allow popups for this site, then try again.';
+              break;
+            case 'access_denied':
+              msg = 'Permission to access Google Docs was denied. Sign in again and grant the requested permission.';
+              break;
+            case 'unauthorized_client':
+              msg = 'This app is not authorized to request Google Docs access. Add the site origin to the OAuth client\'s Authorized JavaScript origins in Google Cloud Console.';
+              break;
+            case 'invalid_request':
+              msg = 'The sign-in request was invalid. Reload the page and try again.';
+              break;
+            default:
+              msg = 'Google authorization failed: ' + (err?.message || type || 'unknown error');
+          }
+          onError?.(msg);
         },
       });
       // Expose so the click handler below can call it.
